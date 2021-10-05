@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:s3="http://www.mulesoft.org/schema/mule/s3" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd">
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="5b8798a9-109b-41ba-9107-a674d7b43240" >
+		<salesforce:basic-connection username="${SalesforceUsername}" password="${SalesforcePassword}" securityToken="${SalesforceSecurityToken}" url="https://login.salesforce.com/services/Soap/u/52.0"/>
+	</salesforce:sfdc-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="e8dfe598-9720-4cbd-a63c-fefbde0be47f" file="local.properties" />
+	<s3:config name="Amazon_S3_Configuration" doc:name="Amazon S3 Configuration" doc:id="7037100d-b000-4f89-a6db-a40ed98f7827" >
+		<s3:basic-connection accessKey="${AmazonAccessKey}" secretKey="${AmazonSecretKey}" region="EU_WEST_2"/>
+	</s3:config>
+	<flow name="aws-s3Flow" doc:id="85f708ab-31a7-43b6-800b-dba8141c3973" >
+		<salesforce:new-object-listener doc:name="On New Object" doc:id="615a8518-e351-4366-8d4a-025bb63a0a76" config-ref="Salesforce_Config" objectType="Lead">
+			<scheduling-strategy >
+				<fixed-frequency frequency="10" timeUnit="SECONDS" />
+			</scheduling-strategy>
+		</salesforce:new-object-listener>
+		<ee:transform doc:name="Transform Message" doc:id="6631f4be-6a19-47ef-a0c8-94cd0ca4fa59" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"0":payload
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[payload]" doc:name="SaveObject" doc:id="bf063079-d02a-4de4-9726-ae1cdc515e42" variableName="SaveObject"/>
+		<s3:get-object doc:name="Get object" doc:id="10c72490-d499-4452-91ee-b704d96a4b60" config-ref="Amazon_S3_Configuration" bucketName="mulesoft-newlead2021" key="customer.json"/>
+		<ee:transform doc:name="Transform Message" doc:id="e0e03301-d23e-4f12-8a8b-a8d5b7808231" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+read(payload,'application/json')]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[payload]" doc:name="SaveS3Object" doc:id="42cf90db-7b1f-457b-9cf9-4d7b6f81bd62" variableName="SaveS3Object"/>
+		<ee:transform doc:name="Transform Message" doc:id="95353dcf-7035-414e-a9bc-58265de1ac56" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.SaveS3Object mapObject ((value, key, index) -> 
+{
+    (index) : value,
+}) ++ vars.SaveObject mapObject ((value, key, index) -> 
+{
+    (index) : value,
+})]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<s3:create-object doc:name="Create object" doc:id="dac163d7-1b9d-4ddc-aa40-e1e0e4d57c57" config-ref="Amazon_S3_Configuration" bucketName="mulesoft-newlead2021" key="customer.json" acl="PUBLIC_READ_WRITE">
+			<s3:object-content ><![CDATA[#[%dw 2.0
+output application/json
+---
+payload]]]></s3:object-content>
+		</s3:create-object>
+	</flow>
+</mule>
